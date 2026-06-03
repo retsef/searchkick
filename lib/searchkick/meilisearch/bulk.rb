@@ -1,3 +1,5 @@
+require_relative "stemmer"
+
 module Searchkick
   module Meilisearch
     # Translates ES bulk action items into Meilisearch document operations.
@@ -25,10 +27,10 @@ module Searchkick
           item = item.transform_keys(&:to_sym)
           if item.key?(:index)
             meta = item[:index]
-            adds[meta[:_index]] << document_for(meta)
+            adds[meta[:_index]] << document_for(meta, index_uid: meta[:_index])
           elsif item.key?(:update)
             meta = item[:update]
-            updates[meta[:_index]] << document_for(meta, partial: true)
+            updates[meta[:_index]] << document_for(meta, index_uid: meta[:_index], partial: true)
           elsif item.key?(:delete)
             meta = item[:delete]
             deletes[meta[:_index]] << meta[:_id]
@@ -59,12 +61,38 @@ module Searchkick
 
       # build a Meilisearch document from a bulk meta entry, injecting the
       # primary key (ES keeps `_id` out of `_source`; Meilisearch needs it in)
-      def document_for(meta, partial: false)
+      # and the shadow stemmed fields (Strategy B) when stemming is enabled.
+      def document_for(meta, index_uid:, partial: false)
         data = meta[:data]
         source = partial ? data[:doc] : data
         source = source.dup
         source[Searchkick::Meilisearch::PRIMARY_KEY] ||= meta[:_id]
+        add_stemmed_fields!(source, index_uid)
         source
+      end
+
+      # For each searchable text field add a `<field>_searchkick_stemmed` field
+      # holding Snowball-stemmed tokens, mirroring an Elasticsearch multi-field.
+      def add_stemmed_fields!(source, index_uid)
+        config = Searchkick::Meilisearch::Stemming.config_for(index_uid)
+        return unless config
+
+        stemmer = Searchkick::Meilisearch::Stemmer.for(config[:language])
+        stemmable_fields(source, config).each do |field|
+          value = source[field] || source[field.to_sym]
+          next unless value.is_a?(String)
+          source["#{field}#{Searchkick::Meilisearch::STEMMED_SUFFIX}"] = stemmer.stem_text(value)
+        end
+      end
+
+      # which fields to stem: the explicit `searchable` list, or all string
+      # fields except the primary key and filterable (facet/filter) fields
+      def stemmable_fields(source, config)
+        if config[:searchable].any?
+          config[:searchable]
+        else
+          source.keys.map(&:to_s) - [Searchkick::Meilisearch::PRIMARY_KEY] - config[:filterable]
+        end
       end
     end
   end

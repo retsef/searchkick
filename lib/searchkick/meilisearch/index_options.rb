@@ -1,3 +1,5 @@
+require_relative "stemmer"
+
 module Searchkick
   module Meilisearch
     # Concern mixed into Searchkick::IndexOptions. Produces Meilisearch index
@@ -37,11 +39,13 @@ module Searchkick
 
       # model options that depend on ES-only analysis/features and have no
       # faithful Meilisearch equivalent
+      # NOTE: `language` is supported via external stemming (ruby-stemmer);
+      # see Searchkick::Meilisearch::Stemmer.
       MEILISEARCH_UNSUPPORTED_OPTIONS = [
         :knn, :conversions, :conversions_v2, :geo_shape, :locations,
         :text_start, :text_middle, :text_end,
         :word_start, :word_middle, :word_end,
-        :language, :stemmer, :stemmer_override, :stem_exclusion,
+        :stemmer, :stemmer_override, :stem_exclusion,
         :suggest, :similarity, :search_synonyms, :special_characters
       ].freeze
 
@@ -62,12 +66,17 @@ module Searchkick
       end
 
       # searchableAttributes order is relevance priority in Meilisearch.
-      # default to all attributes.
+      # default to all attributes. When stemming is enabled (Strategy B), the
+      # shadow stemmed fields are appended after the originals so verbatim
+      # matches keep priority.
       def meilisearch_searchable
-        if options[:searchable]
-          Array(options[:searchable]).map(&:to_s)
+        return ["*"] unless options[:searchable]
+
+        base = Array(options[:searchable]).map(&:to_s)
+        if Searchkick::Meilisearch::Stemming.enabled?(options)
+          base + base.map { |f| "#{f}#{Searchkick::Meilisearch::STEMMED_SUFFIX}" }
         else
-          ["*"]
+          base
         end
       end
 

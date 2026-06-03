@@ -1454,9 +1454,41 @@ Query options:
 Model (`searchkick ...`) options - these depend on Elasticsearch analyzers/features:
 
 - `knn`, `conversions`, `conversions_v2`, `geo_shape`, `locations`
-- `language`, `stemmer`, `stemmer_override`, `stem_exclusion`
+- `stemmer`, `stemmer_override`, `stem_exclusion`
 - `word_start`/`word_middle`/`word_end`, `text_start`/`text_middle`/`text_end`, `match` other than `:word`
 - `suggest`, `similarity`, `search_synonyms`, `special_characters`, `case_sensitive`
+
+### Stemming
+
+Meilisearch has no linguistic stemming (it relies on prefix matching and typo
+tolerance). Searchkick adds optional stemming through the
+[ruby-stemmer](https://github.com/aurelian/ruby-stemmer) gem (Snowball, the same
+algorithm family Elasticsearch uses):
+
+```ruby
+gem "ruby-stemmer"
+```
+
+Enable it with the `language` option:
+
+```ruby
+class Product < ApplicationRecord
+  searchkick language: "english", searchable: [:name]
+end
+```
+
+How it works (Strategy B - mirrors an Elasticsearch multi-field):
+
+- At index time, each searchable text field `f` gets a shadow field `f_searchkick_stemmed` containing the stemmed tokens. The original field is kept verbatim.
+- At search time, Searchkick issues a [federated](https://www.meilisearch.com/docs/learn/multi_search/multi_search_vs_federated_search) multi-search with two lanes: an **exact** lane on the original fields (weight `1.0`) and a **stemmed** lane on the shadow fields (weight `0.5`). Meilisearch merges, dedupes by document, and ranks by weighted ranking score, so verbatim matches rank above stem-only matches while morphological recall is preserved.
+
+The stemmed lane weight is configurable:
+
+```ruby
+searchkick language: "english", searchable: [:name], stem_weight: 0.7
+```
+
+Requires **Meilisearch 1.10+** (federated multi-search). The shadow stemmed fields are stripped from returned documents.
 
 **Limitations**
 

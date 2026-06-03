@@ -12,6 +12,7 @@ gem "activejob", "~> 8.1.0", require: "active_job"
 gem "elasticsearch", "~> 9"
 # gem "opensearch-ruby"
 # gem "meilisearch"
+# gem "ruby-stemmer" # optional, for Meilisearch stemming
 gem "redis-client"
 gem "connection_pool"
 gem "kaminari"

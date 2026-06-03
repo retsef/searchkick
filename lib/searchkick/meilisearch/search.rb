@@ -1,3 +1,5 @@
+require_relative "stemmer"
+
 module Searchkick
   module Meilisearch
     # Translates a single Searchkick-generated ES search request into a
@@ -19,13 +21,57 @@ module Searchkick
 
       def execute
         meili_params = build_params
-        response = client.index(index_uid).search(@query_string, meili_params)
-        normalize_response(response)
+
+        config = Searchkick::Meilisearch::Stemming.config_for(index_uid)
+        if config
+          execute_federated(config, meili_params)
+        else
+          response = client.index(index_uid).search(@query_string, meili_params)
+          normalize_response(response)
+        end
       rescue ::Meilisearch::ApiError => e
         raise client.translate_error(e)
       end
 
       private
+
+      # Strategy B: run two federated lanes - an exact lane on the original
+      # fields (weight 1.0) and a stemmed lane on the shadow stemmed fields
+      # (weight < 1.0). Meilisearch merges, dedupes by document, and ranks by
+      # weighted ranking score, so verbatim matches outrank stem-only matches
+      # while morphological recall is preserved.
+      def execute_federated(config, meili_params)
+        params = meili_params.dup
+        # pagination is controlled by the federation block, not per query
+        limit = params.delete(:limit)
+        offset = params.delete(:offset)
+
+        raw_term = @query_string
+        stemmed_term = Searchkick::Meilisearch::Stemmer.for(config[:language]).stem_text(raw_term)
+
+        searchable = config[:searchable].any? ? config[:searchable] : nil
+        stemmed_attrs = (searchable || ["*"]).map { |f| "#{f}#{Searchkick::Meilisearch::STEMMED_SUFFIX}" }
+
+        exact_lane = params.merge(index_uid: index_uid, q: raw_term, federation_options: {weight: 1.0})
+        exact_lane[:attributes_to_search_on] = searchable if searchable
+
+        stem_lane = params.merge(
+          index_uid: index_uid,
+          q: stemmed_term,
+          attributes_to_search_on: stemmed_attrs,
+          federation_options: {weight: config[:weight]}
+        )
+
+        federation = {}
+        federation[:limit] = limit unless limit.nil?
+        federation[:offset] = offset unless offset.nil?
+        # merge facet distributions across both lanes into a single top-level
+        # facetDistribution (otherwise federation returns facetsByIndex)
+        federation[:merge_facets] = {} if params[:facets]
+
+        response = client.ms.multi_search(queries: [exact_lane, stem_lane], federation: federation)
+        normalize_response(response)
+      end
 
       # ES body -> Meilisearch search params
       def build_params
@@ -365,10 +411,15 @@ module Searchkick
         es
       end
 
+      # Meilisearch reserved keys + the shadow stemmed fields are stripped from
+      # the returned _source so callers never see them.
+      RESERVED_HIT_KEYS = %w[_formatted _rankingScore _rankingScoreDetails _federation].freeze
+
       def normalize_hit(hit)
         formatted = hit["_formatted"]
-        ranking_score = hit["_rankingScore"]
-        source = hit.reject { |k, _| %w[_formatted _rankingScore _rankingScoreDetails].include?(k) }
+        # federated search reports the merged score under _federation
+        ranking_score = hit["_rankingScore"] || hit.dig("_federation", "weightedRankingScore")
+        source = hit.reject { |k, _| reserved_or_stemmed?(k) }
 
         es_hit = {
           "_index" => index_uid,
@@ -380,13 +431,17 @@ module Searchkick
         if formatted
           highlight = {}
           formatted.each do |field, value|
-            next if %w[_formatted _rankingScore _rankingScoreDetails].include?(field)
+            next if reserved_or_stemmed?(field)
             highlight[field] = [value] if source.key?(field) && value != source[field]
           end
           es_hit["highlight"] = highlight unless highlight.empty?
         end
 
         es_hit
+      end
+
+      def reserved_or_stemmed?(key)
+        RESERVED_HIT_KEYS.include?(key) || key.to_s.end_with?(Searchkick::Meilisearch::STEMMED_SUFFIX)
       end
 
       # Meilisearch facetDistribution -> ES terms aggregation buckets
