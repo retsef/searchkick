@@ -37,6 +37,7 @@ Check out [Searchjoy](https://github.com/ankane/searchjoy) for analytics and [Au
 - [Instant Search / Autocomplete](#instant-search--autocomplete)
 - [Aggregations](#aggregations)
 - [Testing](#testing)
+- [Meilisearch](#meilisearch)
 - [Deployment](#deployment)
 - [Performance](#performance)
 - [Advanced Search](#advanced)
@@ -61,9 +62,12 @@ gem "searchkick"
 
 gem "elasticsearch"   # select one
 gem "opensearch-ruby" # select one
+gem "meilisearch"     # select one (experimental, see below)
 ```
 
 The latest version works with Elasticsearch 8 and 9 and OpenSearch 2 and 3. For Elasticsearch 7 and OpenSearch 1, use version 5.5.2 and [this readme](https://github.com/ankane/searchkick/blob/v5.5.2/README.md).
+
+[Meilisearch](https://github.com/meilisearch/meilisearch-ruby) is supported experimentally - see [Meilisearch](#meilisearch) for the supported feature set and limitations.
 
 Add `searchkick` to models you want to search.
 
@@ -1386,9 +1390,75 @@ And [setup-opensearch](https://github.com/ankane/setup-opensearch) for an easy w
     - uses: ankane/setup-opensearch@v1
 ```
 
+## Meilisearch
+
+Searchkick has **experimental** support for [Meilisearch](https://www.meilisearch.com/) through the [meilisearch](https://github.com/meilisearch/meilisearch-ruby) gem.
+
+Install Meilisearch. For Homebrew, use:
+
+```sh
+brew install meilisearch
+brew services start meilisearch
+```
+
+Add the gem to your Gemfile (instead of `elasticsearch` / `opensearch-ruby`):
+
+```ruby
+gem "meilisearch"
+```
+
+Configure the connection with environment variables (defaults shown):
+
+```ruby
+ENV["MEILISEARCH_URL"]     = "http://localhost:7700"
+ENV["MEILISEARCH_API_KEY"] = "your-master-key" # optional
+```
+
+If more than one search client gem is loaded, select Meilisearch explicitly:
+
+```ruby
+Searchkick.client_type = :meilisearch
+```
+
+Meilisearch differs significantly from Elasticsearch/OpenSearch, so not every
+Searchkick feature maps over. Searchkick translates the search request to
+Meilisearch and normalizes the response back, and **raises an explicit error**
+for options that have no faithful Meilisearch equivalent (rather than returning
+silently incorrect results).
+
+**Supported**
+
+- Full-text search with pagination (`limit`, `offset`, `page`, `per_page`)
+- Filtering with `where` (equality, `in`, ranges, `not`, `or`, `exists`, geo `near`)
+- Sorting with `order`
+- Term `aggs` (mapped to Meilisearch facets)
+- `highlight`
+- Relevance score (`with_score`, from Meilisearch ranking score)
+- `Searchkick.multi_search`
+- Indexing single records and bulk indexing
+
+**Not supported** (raises an error)
+
+- Scoring options: `boost`, `boost_by`, `boost_where`, `boost_by_distance`, `boost_by_recency`, `conversions`, `conversions_v2`
+- `similar` (more like this)
+- `suggest` (suggestions)
+- `knn` / vector search
+- Non-term aggregations (ranges, date ranges, date histograms, `avg`/`sum`/`min`/`max`/`cardinality`)
+- `smart_aggs` (post filtering), `explain`, `profile`, `indices_boost`
+- `where` with `like`/`ilike`, `regexp`, `prefix`, `_script`, `geo_polygon`, `geo_shape`, bounding boxes
+- `scroll`
+
+**Limitations**
+
+- Documents are stored with an injected `id` primary key. Document ids must match Meilisearch's primary key constraints (`^[a-zA-Z0-9_-]+$`).
+- `estimatedTotalHits` is used for `total_count` (an estimate), unless a page-based search is used.
+- Meilisearch has no analyzers, so language/stemming/`word_start` and other analysis settings are ignored (tokenization, typo-tolerance, and prefix search are handled internally by Meilisearch).
+- Filtering and sorting require the corresponding attributes to be configured as `filterableAttributes` / `sortableAttributes` on the Meilisearch index.
+- Zero-downtime reindexing via aliases is not yet supported (Meilisearch uses index swapping instead).
+
 ## Deployment
 
-For the search server, Searchkick uses `ENV["ELASTICSEARCH_URL"]` for Elasticsearch and `ENV["OPENSEARCH_URL"]` for OpenSearch. This defaults to `http://localhost:9200`.
+For the search server, Searchkick uses `ENV["ELASTICSEARCH_URL"]` for Elasticsearch, `ENV["OPENSEARCH_URL"]` for OpenSearch, and `ENV["MEILISEARCH_URL"]` for Meilisearch. This defaults to `http://localhost:9200` (Elasticsearch/OpenSearch) or `http://localhost:7700` (Meilisearch).
 
 - [Elastic Cloud](#elastic-cloud)
 - [Amazon OpenSearch Service](#amazon-opensearch-service)

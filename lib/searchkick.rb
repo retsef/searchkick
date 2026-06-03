@@ -81,11 +81,20 @@ module Searchkick
           :opensearch
         elsif defined?(Elasticsearch::Client)
           :elasticsearch
+        elsif defined?(::Meilisearch::Client)
+          :meilisearch
         else
-          raise Error, "No client found - install the `elasticsearch` or `opensearch-ruby` gem"
+          raise Error, "No client found - install the `elasticsearch`, `opensearch-ruby`, or `meilisearch` gem"
         end
 
-      if client_type == :opensearch
+      if client_type == :meilisearch
+        require_relative "searchkick/meilisearch"
+        Searchkick::Meilisearch::Client.new(
+          url: ENV["MEILISEARCH_URL"],
+          api_key: ENV["MEILISEARCH_API_KEY"],
+          options: client_options
+        )
+      elsif client_type == :opensearch
         OpenSearch::Client.new({
           url: ENV["OPENSEARCH_URL"],
           transport_options: {request: {timeout: timeout}},
@@ -133,13 +142,22 @@ module Searchkick
     @opensearch
   end
 
+  def self.meilisearch?
+    unless defined?(@meilisearch)
+      @meilisearch = server_info["version"]["distribution"] == "meilisearch"
+    end
+    @meilisearch
+  end
+
   def self.server_below?(version)
     Gem::Version.new(server_version.split("-")[0]) < Gem::Version.new(version.split("-")[0])
   end
 
   # private
   def self.knn_support?
-    if opensearch?
+    if meilisearch?
+      false
+    elsif opensearch?
       !server_below?("2.4.0")
     else
       !server_below?("8.6.0")
@@ -353,6 +371,7 @@ module Searchkick
 
   # private
   def self.not_found_error?(e)
+    (defined?(Searchkick::Meilisearch::NotFoundError) && e.is_a?(Searchkick::Meilisearch::NotFoundError)) ||
     (defined?(Elastic::Transport) && e.is_a?(Elastic::Transport::Transport::Errors::NotFound)) ||
     (defined?(Elasticsearch::Transport) && e.is_a?(Elasticsearch::Transport::Transport::Errors::NotFound)) ||
     (defined?(OpenSearch) && e.is_a?(OpenSearch::Transport::Transport::Errors::NotFound))
