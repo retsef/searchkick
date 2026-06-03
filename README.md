@@ -1496,7 +1496,7 @@ Requires **Meilisearch 1.10+** (federated multi-search). The shadow stemmed fiel
 - `estimatedTotalHits` is used for `total_count` (an estimate), unless a page-based search is used.
 - Meilisearch has no analyzers (tokenization, typo-tolerance, and prefix search are handled internally).
 - `searchableAttributes`, `filterableAttributes`, and `sortableAttributes` are configured automatically from the `searchable` and `filterable` model options (defaulting to all attributes). There is no separate `sortable` option, so sortable mirrors filterable.
-- Zero-downtime reindexing via aliases is not yet supported (Meilisearch uses index swapping instead).
+- `Model.reindex` is zero-downtime: a fresh index is built and atomically swapped in with [`swap_indexes`](https://www.meilisearch.com/docs/reference/api/indexes#swap-indexes), then the stale index is dropped. Only `mode: :inline` is supported (no `:async` / `:queue`), and `resume` is not supported.
 
 ## Deployment
 

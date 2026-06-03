@@ -96,6 +96,12 @@ module Searchkick
         @ms.index(uid)
       end
 
+      # atomically swap the contents (documents + settings) of two indexes
+      def swap_indexes(a, b)
+        task = @ms.swap_indexes([a, b])
+        wait_for_task(task)
+      end
+
       def wait_for_task(task)
         # ::Meilisearch returns a Models::Task or a Hash with "taskUid"
         uid = task.respond_to?(:task_uid) ? task.task_uid : (task["taskUid"] || task["uid"])

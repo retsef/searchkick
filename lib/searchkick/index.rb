@@ -1,5 +1,9 @@
+require_relative "meilisearch/reindex"
+
 module Searchkick
   class Index
+    include Searchkick::Meilisearch::Reindex
+
     attr_reader :name, :options
 
     def initialize(name, options = {})
@@ -361,6 +365,10 @@ module Searchkick
     # https://gist.github.com/jarosan/3124884
     # https://www.elastic.co/blog/changing-mapping-with-zero-downtime/
     def full_reindex(relation, import: true, resume: false, retain: false, mode: nil, refresh_interval: nil, scope: nil, wait: nil, job_options: nil)
+      if Searchkick.meilisearch?
+        return meilisearch_full_reindex(relation, import: import, resume: resume, retain: retain, mode: mode, refresh_interval: refresh_interval, scope: scope, wait: wait, job_options: job_options)
+      end
+
       raise ArgumentError, "wait only available in :async mode" if !wait.nil? && mode != :async
       raise ArgumentError, "Full reindex does not support :queue mode - use :async mode instead" if mode == :queue
 
