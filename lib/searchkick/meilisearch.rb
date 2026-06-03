@@ -118,11 +118,22 @@ module Searchkick
         @ms = client.ms
       end
 
-      # body is the ES {settings:, mappings:} blob from IndexOptions - ignored.
-      # We create a Meilisearch index with our injected primary key.
+      # body is the Meilisearch options hash from IndexOptions
+      # ({meilisearch: {primary_key:, settings:}}). Create the index with the
+      # injected primary key, then apply the flat index settings.
       def create(index:, body: {})
-        task = @ms.create_index(index, primary_key: Searchkick::Meilisearch::PRIMARY_KEY)
+        meili = (body[:meilisearch] || body["meilisearch"] || {})
+        primary_key = meili[:primary_key] || Searchkick::Meilisearch::PRIMARY_KEY
+
+        task = @ms.create_index(index, primary_key: primary_key)
         @client.wait_for_task(task)
+
+        settings = meili[:settings]
+        if settings && !settings.empty?
+          task = @ms.index(index).update_settings(settings)
+          @client.wait_for_task(task)
+        end
+
         {"acknowledged" => true}
       rescue ::Meilisearch::ApiError => e
         raise @client.translate_error(e)

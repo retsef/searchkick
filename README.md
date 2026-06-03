@@ -1436,8 +1436,11 @@ silently incorrect results).
 - Relevance score (`with_score`, from Meilisearch ranking score)
 - `Searchkick.multi_search`
 - Indexing single records and bulk indexing
+- `synonyms` (translated to Meilisearch's synonym map)
 
 **Not supported** (raises an error)
+
+Query options:
 
 - Scoring options: `boost`, `boost_by`, `boost_where`, `boost_by_distance`, `boost_by_recency`, `conversions`, `conversions_v2`
 - `similar` (more like this)
@@ -1448,12 +1451,19 @@ silently incorrect results).
 - `where` with `like`/`ilike`, `regexp`, `prefix`, `_script`, `geo_polygon`, `geo_shape`, bounding boxes
 - `scroll`
 
+Model (`searchkick ...`) options - these depend on Elasticsearch analyzers/features:
+
+- `knn`, `conversions`, `conversions_v2`, `geo_shape`, `locations`
+- `language`, `stemmer`, `stemmer_override`, `stem_exclusion`
+- `word_start`/`word_middle`/`word_end`, `text_start`/`text_middle`/`text_end`, `match` other than `:word`
+- `suggest`, `similarity`, `search_synonyms`, `special_characters`, `case_sensitive`
+
 **Limitations**
 
 - Documents are stored with an injected `id` primary key. Document ids must match Meilisearch's primary key constraints (`^[a-zA-Z0-9_-]+$`).
 - `estimatedTotalHits` is used for `total_count` (an estimate), unless a page-based search is used.
-- Meilisearch has no analyzers, so language/stemming/`word_start` and other analysis settings are ignored (tokenization, typo-tolerance, and prefix search are handled internally by Meilisearch).
-- Filtering and sorting require the corresponding attributes to be configured as `filterableAttributes` / `sortableAttributes` on the Meilisearch index.
+- Meilisearch has no analyzers (tokenization, typo-tolerance, and prefix search are handled internally).
+- `searchableAttributes`, `filterableAttributes`, and `sortableAttributes` are configured automatically from the `searchable` and `filterable` model options (defaulting to all attributes). There is no separate `sortable` option, so sortable mirrors filterable.
 - Zero-downtime reindexing via aliases is not yet supported (Meilisearch uses index swapping instead).
 
 ## Deployment

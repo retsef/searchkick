@@ -1,5 +1,9 @@
+require_relative "meilisearch/index_options"
+
 module Searchkick
   class IndexOptions
+    include Searchkick::Meilisearch::IndexOptions
+
     attr_reader :options
 
     def initialize(index)
@@ -7,6 +11,8 @@ module Searchkick
     end
 
     def index_options
+      return meilisearch_index_options if Searchkick.meilisearch?
+
       # mortal symbols are garbage collected in Ruby 2.2+
       custom_settings = (options[:settings] || {}).deep_symbolize_keys
       custom_mappings = (options[:mappings] || {}).deep_symbolize_keys
