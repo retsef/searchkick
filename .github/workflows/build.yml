@@ -23,7 +23,7 @@ jobs:
             opensearch: 2
           - ruby: 3.4
             gemfile: gemfiles/meilisearch.gemfile
-            meilisearch: v1.13
+            meilisearch: 1.13
           - ruby: 3.4
             gemfile: gemfiles/mongoid9.gemfile
             elasticsearch: 9
@@ -79,17 +79,10 @@ jobs:
         with:
           path: ~/meilisearch
           key: ${{ runner.os }}-meilisearch-${{ matrix.meilisearch }}
-      - name: Setup Meilisearch
+      - uses: retsef/setup-meilisearch@v1
         if: ${{ matrix.meilisearch }}
-        run: |
-          mkdir -p ~/meilisearch
-          if [ ! -f ~/meilisearch/meilisearch ]; then
-            curl -L "https://github.com/meilisearch/meilisearch/releases/download/${{ matrix.meilisearch }}/meilisearch-linux-amd64" -o ~/meilisearch/meilisearch
-            chmod +x ~/meilisearch/meilisearch
-          fi
-          ~/meilisearch/meilisearch --no-analytics --http-addr 127.0.0.1:7700 &
-          until curl -s http://127.0.0.1:7700/health; do sleep 1; done
-          echo "MEILISEARCH_URL=http://127.0.0.1:7700" >> $GITHUB_ENV
+        with:
+          meilisearch-version: ${{ matrix.meilisearch }}
 
       - uses: ankane/setup-mongodb@v1
         if: ${{ matrix.mongodb }}
