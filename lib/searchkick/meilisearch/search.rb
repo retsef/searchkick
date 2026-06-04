@@ -1,4 +1,5 @@
 require_relative "stemmer"
+require_relative "vectors"
 
 module Searchkick
   module Meilisearch
@@ -20,6 +21,9 @@ module Searchkick
       end
 
       def execute
+        knn = body[:knn] || body["knn"]
+        return execute_knn(symbolize(knn)) if knn
+
         meili_params = build_params
 
         config = Searchkick::Meilisearch::Stemming.config_for(index_uid)
@@ -34,6 +38,34 @@ module Searchkick
       end
 
       private
+
+      # Approximate vector search. Searchkick's knn payload
+      # ({field:, query_vector:, k:, filter:}) maps to a Meilisearch
+      # `userProvided` embedder query (vector + hybrid, semanticRatio 1.0).
+      def execute_knn(knn)
+        field = knn[:field].to_s
+        vector = knn[:query_vector] || knn[:vector]
+        raise Searchkick::InvalidQueryError, "knn requires field and vector" if field.empty? || vector.nil?
+
+        distance = knn[:distance]
+        if distance && distance.to_s != "cosine"
+          raise Searchkick::InvalidQueryError, "Meilisearch vector search only supports cosine distance (got #{distance.inspect})"
+        end
+
+        params = {
+          vector: vector,
+          hybrid: {embedder: field, semantic_ratio: 1.0},
+          show_ranking_score: true
+        }
+        params[:limit] = body[:size] if body.key?(:size)
+        params[:offset] = body[:from] if body.key?(:from)
+
+        filter = build_filter(knn[:filter])
+        params[:filter] = filter if filter
+
+        response = client.index(index_uid).search("", params)
+        normalize_response(response)
+      end
 
       # Strategy B: run two federated lanes - an exact lane on the original
       # fields (weight 1.0) and a stemmed lane on the shadow stemmed fields
@@ -112,9 +144,6 @@ module Searchkick
       end
 
       def reject_unsupported_top_level!
-        if body.key?(:knn) || body.key?("knn")
-          raise Searchkick::InvalidQueryError, "knn/vector search is not supported by this Meilisearch adapter"
-        end
         if body.key?(:suggest) || body.key?("suggest")
           raise Searchkick::InvalidQueryError, "suggestions (suggest:) are not supported by Meilisearch"
         end
@@ -413,7 +442,7 @@ module Searchkick
 
       # Meilisearch reserved keys + the shadow stemmed fields are stripped from
       # the returned _source so callers never see them.
-      RESERVED_HIT_KEYS = %w[_formatted _rankingScore _rankingScoreDetails _federation].freeze
+      RESERVED_HIT_KEYS = %w[_formatted _rankingScore _rankingScoreDetails _federation _vectors].freeze
 
       def normalize_hit(hit)
         formatted = hit["_formatted"]

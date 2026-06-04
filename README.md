@@ -1445,7 +1445,7 @@ Query options:
 - Scoring options: `boost`, `boost_by`, `boost_where`, `boost_by_distance`, `boost_by_recency`, `conversions`, `conversions_v2`
 - `similar` (more like this)
 - `suggest` (suggestions)
-- `knn` / vector search
+- exact `knn` (`exact: true`) - only approximate vector search is supported (see [Vector Search](#vector-search-meilisearch))
 - Non-term aggregations (ranges, date ranges, date histograms, `avg`/`sum`/`min`/`max`/`cardinality`)
 - `smart_aggs` (post filtering), `explain`, `profile`, `indices_boost`
 - `where` with `like`/`ilike`, `regexp`, `prefix`, `_script`, `geo_polygon`, `geo_shape`, bounding boxes
@@ -1453,7 +1453,7 @@ Query options:
 
 Model (`searchkick ...`) options - these depend on Elasticsearch analyzers/features:
 
-- `knn`, `conversions`, `conversions_v2`, `geo_shape`, `locations`
+- `conversions`, `conversions_v2`, `geo_shape`, `locations`
 - `stemmer`, `stemmer_override`, `stem_exclusion`
 - `word_start`/`word_middle`/`word_end`, `text_start`/`text_middle`/`text_end`, `match` other than `:word`
 - `suggest`, `similarity`, `search_synonyms`, `special_characters`, `case_sensitive`
@@ -1489,6 +1489,28 @@ searchkick language: "english", searchable: [:name], stem_weight: 0.7
 ```
 
 Requires **Meilisearch 1.10+** (federated multi-search). The shadow stemmed fields are stripped from returned documents.
+
+### Vector Search (Meilisearch)
+
+Approximate vector search is supported via Meilisearch's [vector search](https://www.meilisearch.com/docs/learn/ai_powered_search/getting_started_with_ai_search). Searchkick maps each `knn` field to a `userProvided` [embedder](https://www.meilisearch.com/docs/reference/api/settings#embedders) and stores the vectors under the document's `_vectors`.
+
+```ruby
+class Product < ApplicationRecord
+  searchkick knn: {embedding: {dimensions: 3, distance: "cosine"}}
+end
+```
+
+```ruby
+Product.search.knn(field: :embedding, vector: [1, 2, 3]).limit(10)
+```
+
+Notes / limitations:
+
+- Requires **Meilisearch 1.13+** (vector search is GA; no experimental flag needed).
+- Only **cosine** distance is supported.
+- Only **approximate** search - `exact: true` raises (Meilisearch has no brute-force per-query mode).
+- Hybrid search (`knn` together with a text term) is not supported by this adapter.
+- The `_vectors` field is stripped from returned documents.
 
 **Limitations**
 

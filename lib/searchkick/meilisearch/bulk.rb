@@ -1,4 +1,5 @@
 require_relative "stemmer"
+require_relative "vectors"
 
 module Searchkick
   module Meilisearch
@@ -68,7 +69,22 @@ module Searchkick
         source = source.dup
         source[Searchkick::Meilisearch::PRIMARY_KEY] ||= meta[:_id]
         add_stemmed_fields!(source, index_uid)
+        move_vectors!(source, index_uid)
         source
+      end
+
+      # Move knn field values into Meilisearch's `_vectors` (userProvided
+      # embedder per field) so they are indexed for vector search.
+      def move_vectors!(source, index_uid)
+        fields = Searchkick::Meilisearch::Vectors.fields_for(index_uid)
+        return if fields.empty?
+
+        vectors = {}
+        fields.each do |field|
+          value = source.key?(field) ? source.delete(field) : source.delete(field.to_sym)
+          vectors[field] = value unless value.nil?
+        end
+        source[Searchkick::Meilisearch::Vectors::KEY] = vectors unless vectors.empty?
       end
 
       # For each searchable text field add a `<field>_searchkick_stemmed` field

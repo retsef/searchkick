@@ -156,7 +156,8 @@ module Searchkick
   # private
   def self.knn_support?
     if meilisearch?
-      false
+      # vector search is GA in Meilisearch 1.13
+      !server_below?("1.13.0")
     elsif opensearch?
       !server_below?("2.4.0")
     else

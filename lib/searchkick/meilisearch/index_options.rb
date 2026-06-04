@@ -27,6 +27,9 @@ module Searchkick
         synonyms = meilisearch_synonyms
         settings["synonyms"] = synonyms if synonyms.any?
 
+        embedders = meilisearch_embedders
+        settings["embedders"] = embedders if embedders.any?
+
         {
           meilisearch: {
             primary_key: Searchkick::Meilisearch::PRIMARY_KEY,
@@ -35,14 +38,30 @@ module Searchkick
         }
       end
 
+      # knn fields -> Meilisearch userProvided embedders (vector search)
+      def meilisearch_embedders
+        (options[:knn] || {}).each_with_object({}) do |(field, field_options), embedders|
+          field_options ||= {}
+          distance = field_options[:distance]
+          if distance && distance.to_s != "cosine"
+            raise ArgumentError, "Meilisearch vector search only supports cosine distance (got #{distance.inspect})"
+          end
+
+          embedders[field.to_s] = {
+            "source" => "userProvided",
+            "dimensions" => field_options[:dimensions]
+          }
+        end
+      end
+
       private
 
       # model options that depend on ES-only analysis/features and have no
       # faithful Meilisearch equivalent
       # NOTE: `language` is supported via external stemming (ruby-stemmer);
-      # see Searchkick::Meilisearch::Stemmer.
+      # `knn` is supported via Meilisearch vector search (embedders).
       MEILISEARCH_UNSUPPORTED_OPTIONS = [
-        :knn, :conversions, :conversions_v2, :geo_shape, :locations,
+        :conversions, :conversions_v2, :geo_shape, :locations,
         :text_start, :text_middle, :text_end,
         :word_start, :word_middle, :word_end,
         :stemmer, :stemmer_override, :stem_exclusion,
