@@ -22,6 +22,9 @@ jobs:
             gemfile: gemfiles/opensearch2.gemfile
             opensearch: 2
           - ruby: 3.4
+            gemfile: gemfiles/meilisearch.gemfile
+            meilisearch: v1.12
+          - ruby: 3.4
             gemfile: gemfiles/mongoid9.gemfile
             elasticsearch: 9
             mongodb: true
@@ -70,6 +73,23 @@ jobs:
             analysis-smartcn
             analysis-stempel
             analysis-ukrainian
+
+      - uses: actions/cache@v5
+        if: ${{ matrix.meilisearch }}
+        with:
+          path: ~/meilisearch
+          key: ${{ runner.os }}-meilisearch-${{ matrix.meilisearch }}
+      - name: Setup Meilisearch
+        if: ${{ matrix.meilisearch }}
+        run: |
+          mkdir -p ~/meilisearch
+          if [ ! -f ~/meilisearch/meilisearch ]; then
+            curl -L "https://github.com/meilisearch/meilisearch/releases/download/${{ matrix.meilisearch }}/meilisearch-linux-amd64" -o ~/meilisearch/meilisearch
+            chmod +x ~/meilisearch/meilisearch
+          fi
+          ~/meilisearch/meilisearch --no-analytics --http-addr 127.0.0.1:7700 &
+          until curl -s http://127.0.0.1:7700/health; do sleep 1; done
+          echo "MEILISEARCH_URL=http://127.0.0.1:7700" >> $GITHUB_ENV
 
       - uses: ankane/setup-mongodb@v1
         if: ${{ matrix.mongodb }}

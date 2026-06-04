@@ -1,0 +1,18 @@
+source "https://rubygems.org"
+
+gemspec path: ".."
+
+gem "rake"
+gem "minitest"
+gem "sqlite3"
+gem "activerecord", "~> 7.2.0"
+gem "actionpack", "~> 7.2.0"
+gem "activejob", "~> 7.2.0", require: "active_job"
+gem "meilisearch"
+gem "ruby-stemmer", require: false
+gem "redis-client"
+gem "connection_pool"
+gem "kaminari"
+gem "gemoji-parser"
+gem "parallel_tests"
+gem "typhoeus"
