@@ -193,6 +193,10 @@ module Searchkick
     end
 
     def reload_synonyms
+      # Meilisearch applies synonyms via index settings (set during reindex),
+      # so there is no separate analyzer to reload.
+      return if Searchkick.meilisearch?
+
       if Searchkick.opensearch?
         client.transport.perform_request "POST", "_plugins/_refresh_search_analyzers/#{CGI.escape(name)}"
       else

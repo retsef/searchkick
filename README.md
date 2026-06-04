@@ -1435,8 +1435,11 @@ silently incorrect results).
 - `highlight`
 - Relevance score (`with_score`, from Meilisearch ranking score)
 - `Searchkick.multi_search`
+- Multi-model / multi-index search (`Searchkick.search(models: [...])`, via federated multi-search)
+- `select` / source filtering (mapped to `attributesToRetrieve`)
 - Indexing single records and bulk indexing
 - `synonyms` (translated to Meilisearch's synonym map)
+- Approximate vector search (`knn`) and `language` stemming (see below)
 
 **Not supported** (raises an error)
 

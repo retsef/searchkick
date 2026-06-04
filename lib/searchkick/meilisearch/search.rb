@@ -11,7 +11,9 @@ module Searchkick
 
       def initialize(client, params)
         @client = client
-        @index_uid = Array(params[:index]).first
+        # index may be a comma-joined list (multi-model / multi-index search)
+        @index_uids = Array(params[:index]).flat_map { |v| v.to_s.split(",") }.reject(&:empty?)
+        @index_uid = @index_uids.first
         @body = (params[:body] || {})
 
         unsupported = params.keys & [:scroll, :routing, :type]
@@ -26,6 +28,10 @@ module Searchkick
 
         meili_params = build_params
 
+        if @index_uids.size > 1
+          return execute_multi_index(meili_params)
+        end
+
         config = Searchkick::Meilisearch::Stemming.config_for(index_uid)
         if config
           execute_federated(config, meili_params)
@@ -38,6 +44,25 @@ module Searchkick
       end
 
       private
+
+      # Multi-index / multi-model search. Meilisearch has no native cross-index
+      # search, so issue a federated multi-search (one query per index) and let
+      # Meilisearch merge, rank, and paginate the combined result set.
+      def execute_multi_index(meili_params)
+        params = meili_params.dup
+        limit = params.delete(:limit)
+        offset = params.delete(:offset)
+
+        queries = @index_uids.map { |uid| params.merge(index_uid: uid, q: @query_string) }
+
+        federation = {}
+        federation[:limit] = limit unless limit.nil?
+        federation[:offset] = offset unless offset.nil?
+        federation[:merge_facets] = {} if params[:facets]
+
+        response = client.ms.multi_search(queries: queries, federation: federation)
+        normalize_response(response)
+      end
 
       # Approximate vector search. Searchkick's knn payload
       # ({field:, query_vector:, k:, filter:}) maps to a Meilisearch
@@ -116,6 +141,18 @@ module Searchkick
         # pagination (ES from/size -> Meilisearch offset/limit)
         params[:limit] = body[:size] if body.key?(:size)
         params[:offset] = body[:from] if body.key?(:from)
+
+        # source filtering / select (ES _source -> Meilisearch attributesToRetrieve)
+        if body.key?(:_source)
+          source = body[:_source]
+          pk = Searchkick::Meilisearch::PRIMARY_KEY
+          if source == false
+            # ES returns only the id; keep just the primary key
+            params[:attributes_to_retrieve] = [pk]
+          elsif source.is_a?(Array)
+            params[:attributes_to_retrieve] = (source.map(&:to_s) + [pk]).uniq
+          end
+        end
 
         # filters (ES bool.filter / where -> Meilisearch filter expression)
         filter = build_filter(body[:query] || body["query"])
@@ -451,7 +488,8 @@ module Searchkick
         source = hit.reject { |k, _| reserved_or_stemmed?(k) }
 
         es_hit = {
-          "_index" => index_uid,
+          # federated (multi-index) hits carry their origin under _federation
+          "_index" => hit.dig("_federation", "indexUid") || index_uid,
           "_id" => hit[Searchkick::Meilisearch::PRIMARY_KEY].to_s,
           "_score" => ranking_score,
           "_source" => source
