@@ -15,6 +15,8 @@ module Searchkick
         @index_uids = Array(params[:index]).flat_map { |v| v.to_s.split(",") }.reject(&:empty?)
         @index_uid = @index_uids.first
         @body = (params[:body] || {})
+        @metric_aggs = {}
+        @facet_limits = {}
 
         unsupported = params.keys & [:scroll, :routing, :type]
         if unsupported.any?
@@ -172,6 +174,10 @@ module Searchkick
           params[:attributes_to_highlight] = highlight[:fields]
           params[:highlight_pre_tag] = highlight[:pre_tag] if highlight[:pre_tag]
           params[:highlight_post_tag] = highlight[:post_tag] if highlight[:post_tag]
+          if highlight[:crop_length]
+            params[:attributes_to_crop] = highlight[:fields]
+            params[:crop_length] = highlight[:crop_length]
+          end
         end
 
         # ranking score so Results#with_score works
@@ -213,7 +219,8 @@ module Searchkick
         elsif query.key?(:function_score)
           raise Searchkick::InvalidQueryError, "boost_by/boost_where/conversions (function_score) are not supported by Meilisearch"
         elsif query.key?(:script_score)
-          raise Searchkick::InvalidQueryError, "script scoring is not supported by Meilisearch"
+          # exact knn (knn exact: true) is built as a script_score in ES
+          raise Searchkick::InvalidQueryError, "exact knn / script scoring is not supported by Meilisearch (use approximate knn, without exact: true)"
         elsif query.key?(:more_like_this)
           raise Searchkick::InvalidQueryError, "similar: (more_like_this) is not supported by Meilisearch"
         elsif query.key?(:rank_feature)
@@ -410,26 +417,49 @@ module Searchkick
         end
       end
 
-      # ES aggs -> Meilisearch facets (terms aggregations only)
+      # ES aggs -> Meilisearch facets.
+      # - terms aggregations  -> facetDistribution
+      # - min/max metric aggs -> facetStats (recorded in @metric_aggs for the
+      #   response). avg/sum/cardinality have no Meilisearch equivalent.
       def build_facets(aggs)
         return nil if aggs.nil?
-        aggs.map do |field, agg_options|
+        @metric_aggs = {}
+        @facet_limits = {}
+
+        facets = aggs.map do |name, agg_options|
           agg_options = symbolize(agg_options)
           if agg_options.key?(:terms)
-            symbolize(agg_options[:terms])[:field] || field.to_s
+            facet_field(symbolize(agg_options[:terms]), name)
           elsif agg_options.key?(:filter)
             # smart_aggs wraps terms in a filter agg - unwrap one level
             inner = symbolize(symbolize(agg_options[:aggs]).values.first)
             if inner.key?(:terms)
-              symbolize(inner[:terms])[:field] || field.to_s
+              facet_field(symbolize(inner[:terms]), name)
             else
               raise Searchkick::InvalidQueryError, "only terms aggregations are supported by Meilisearch"
             end
+          elsif (metric = [:min, :max].find { |m| agg_options.key?(m) })
+            field = symbolize(agg_options[metric])[:field] || name.to_s
+            @metric_aggs[name.to_s] = {type: metric, field: field.to_s}
+            field.to_s
+          elsif [:avg, :sum, :cardinality].any? { |m| agg_options.key?(m) }
+            raise Searchkick::InvalidQueryError,
+              "Meilisearch supports only min/max metric aggregations (facetStats); avg/sum/cardinality are not supported"
           else
             raise Searchkick::InvalidQueryError,
-              "only terms aggregations are supported by Meilisearch (got #{(agg_options.keys - [:aggs]).join(", ")})"
+              "only terms and min/max aggregations are supported by Meilisearch (got #{(agg_options.keys - [:aggs]).join(", ")})"
           end
         end
+
+        facets.uniq
+      end
+
+      # resolve a terms agg field and record its per-agg size (ES terms.size)
+      # so the bucket list can be trimmed in the response
+      def facet_field(terms, name)
+        field = (terms[:field] || name).to_s
+        @facet_limits[field] = terms[:size] if terms[:size]
+        field
       end
 
       def build_highlight(highlight)
@@ -439,6 +469,9 @@ module Searchkick
         result = {fields: fields}
         result[:pre_tag] = Array(highlight[:pre_tags]).first if highlight[:pre_tags]
         result[:post_tag] = Array(highlight[:post_tags]).first if highlight[:post_tags]
+        # ES fragment_size (0 = whole field) -> Meilisearch crop length
+        fragment_size = highlight[:fragment_size]
+        result[:crop_length] = fragment_size if fragment_size && fragment_size > 0
         result
       end
 
@@ -472,6 +505,16 @@ module Searchkick
 
         if response["facetDistribution"]
           es["aggregations"] = normalize_facets(response["facetDistribution"])
+        end
+
+        # min/max metric aggs from Meilisearch facetStats
+        if @metric_aggs.any?
+          stats = response["facetStats"] || {}
+          es["aggregations"] ||= {}
+          @metric_aggs.each do |name, info|
+            value = (stats[info[:field]] || {})[info[:type].to_s]
+            es["aggregations"][name] = {"value" => value}
+          end
         end
 
         es
@@ -516,6 +559,8 @@ module Searchkick
         distribution.each_with_object({}) do |(field, counts), result|
           buckets = counts.map { |key, count| {"key" => key, "doc_count" => count} }
           buckets.sort_by! { |b| -b["doc_count"] }
+          limit = @facet_limits[field]
+          buckets = buckets.first(limit) if limit
           result[field] = {"buckets" => buckets}
         end
       end

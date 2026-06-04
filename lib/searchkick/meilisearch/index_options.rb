@@ -21,7 +21,10 @@ module Searchkick
           "searchableAttributes" => meilisearch_searchable,
           "filterableAttributes" => meilisearch_filterable,
           "sortableAttributes" => meilisearch_sortable,
-          "pagination" => {"maxTotalHits" => meilisearch_max_total_hits}
+          "pagination" => {"maxTotalHits" => meilisearch_max_total_hits},
+          # match searchkick's default aggregation size (Meilisearch defaults to
+          # 100, which would silently truncate facet values)
+          "faceting" => {"maxValuesPerFacet" => meilisearch_max_values_per_facet}
         }
 
         synonyms = meilisearch_synonyms
@@ -117,6 +120,12 @@ module Searchkick
 
       def meilisearch_max_total_hits
         options[:max_result_window] || (options[:deep_paging] ? 1_000_000_000 : 1_000)
+      end
+
+      # cap on distinct values returned per facet (searchkick's default agg
+      # size is 1000); configurable via the `max_values_per_facet` model option
+      def meilisearch_max_values_per_facet
+        options[:max_values_per_facet] || 1_000
       end
 
       # ES synonyms (equivalent groups or "a => b" directional) ->

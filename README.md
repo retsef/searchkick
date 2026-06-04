@@ -1431,8 +1431,9 @@ silently incorrect results).
 - Full-text search with pagination (`limit`, `offset`, `page`, `per_page`)
 - Filtering with `where` (equality, `in`, ranges, `not`, `or`, `exists`, geo `near`)
 - Sorting with `order`
-- Term `aggs` (mapped to Meilisearch facets)
-- `highlight`
+- Term `aggs` (mapped to Meilisearch facets, with per-agg `limit`) and `min`/`max` metric aggs (via facetStats)
+- `highlight` (tags + `fragment_size`, mapped to Meilisearch crop)
+- Typo tolerance: Meilisearch is typo-tolerant by default, so misspellings work out of the box (the `misspellings` fuzzy options are ignored - typo behavior is configured at the index level in Meilisearch)
 - Relevance score (`with_score`, from Meilisearch ranking score)
 - `Searchkick.multi_search`
 - Multi-model / multi-index search (`Searchkick.search(models: [...])`, via federated multi-search)
@@ -1449,7 +1450,7 @@ Query options:
 - `similar` (more like this)
 - `suggest` (suggestions)
 - exact `knn` (`exact: true`) - only approximate vector search is supported (see [Vector Search](#vector-search-meilisearch))
-- Non-term aggregations (ranges, date ranges, date histograms, `avg`/`sum`/`min`/`max`/`cardinality`)
+- Aggregations other than terms and `min`/`max`: ranges, date ranges, date histograms, `avg`/`sum`/`cardinality` (`min`/`max` are supported via Meilisearch facetStats)
 - `smart_aggs` (post filtering), `explain`, `profile`, `indices_boost`
 - `where` with `like`/`ilike`, `regexp`, `prefix`, `_script`, `geo_polygon`, `geo_shape`, bounding boxes
 - `scroll`
@@ -1521,6 +1522,7 @@ Notes / limitations:
 - `estimatedTotalHits` is used for `total_count` (an estimate), unless a page-based search is used.
 - Meilisearch has no analyzers (tokenization, typo-tolerance, and prefix search are handled internally).
 - `searchableAttributes`, `filterableAttributes`, and `sortableAttributes` are configured automatically from the `searchable` and `filterable` model options (defaulting to all attributes). There is no separate `sortable` option, so sortable mirrors filterable.
+- Facet fields must be `filterable`. The number of distinct values per facet is capped by Meilisearch's `maxValuesPerFacet` (set to 1000 by default to match searchkick; configurable with the `max_values_per_facet` model option).
 - `Model.reindex` is zero-downtime: a fresh index is built and atomically swapped in with [`swap_indexes`](https://www.meilisearch.com/docs/reference/api/indexes#swap-indexes), then the stale index is dropped. Only `mode: :inline` is supported (no `:async` / `:queue`), and `resume` is not supported.
 
 ## Deployment
