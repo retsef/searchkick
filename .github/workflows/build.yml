@@ -23,7 +23,7 @@ jobs:
             opensearch: 2
           - ruby: 3.4
             gemfile: gemfiles/meilisearch.gemfile
-            meilisearch: 1.13
+            meilisearch: 1.45
           - ruby: 3.4
             gemfile: gemfiles/mongoid9.gemfile
             elasticsearch: 9
